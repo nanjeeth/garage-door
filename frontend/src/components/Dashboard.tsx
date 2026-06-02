@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, DoorStatus, DoorEvent } from "../api";
+import { api } from "../api";
+import type { DoorStatus, DoorEvent } from "../api";
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();

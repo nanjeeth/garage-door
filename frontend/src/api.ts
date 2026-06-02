@@ -1,4 +1,4 @@
-const BASE = import.meta.env.DEV ? "http://localhost:8002" : "/api";
+const BASE = import.meta.env.DEV ? "http://localhost:8002" : "";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, options);

@@ -7,3 +7,6 @@ node_modules/
 dist/
 data/
 *.db
+
+# Local firmware copy with credentials — never push
+esp32/garage_door/

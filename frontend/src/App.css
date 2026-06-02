@@ -1,0 +1,283 @@
+:root {
+  --bg: #0f1117;
+  --card-bg: #1a1d27;
+  --text: #e4e4e7;
+  --text-dim: #8b8b9e;
+  --accent: #3b82f6;
+  --green: #22c55e;
+  --red: #ef4444;
+  --orange: #f59e0b;
+  --border: #2a2d3a;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+.app {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.app-header {
+  text-align: center;
+  padding: 20px 0;
+}
+
+.app-header h1 {
+  font-size: 1.5rem;
+  margin-bottom: 4px;
+}
+
+.subtitle {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+/* Door Status Card */
+.door-card {
+  background: var(--card-bg);
+  border-radius: 16px;
+  padding: 32px;
+  text-align: center;
+  position: relative;
+  border: 2px solid var(--border);
+  transition: border-color 0.3s;
+}
+
+.door-card.open {
+  border-color: var(--orange);
+}
+
+.door-card.closed {
+  border-color: var(--green);
+}
+
+.door-icon {
+  font-size: 4rem;
+  margin-bottom: 12px;
+}
+
+.door-status h2 {
+  font-size: 2rem;
+  letter-spacing: 4px;
+  margin-bottom: 8px;
+}
+
+.door-card.open .door-status h2 {
+  color: var(--orange);
+}
+
+.door-card.closed .door-status h2 {
+  color: var(--green);
+}
+
+.last-changed {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.esp32-badge {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border-radius: 12px;
+}
+
+.esp32-badge.online {
+  color: var(--green);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.esp32-badge.offline {
+  color: var(--red);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Controls */
+.controls {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.trigger-btn {
+  width: 100%;
+  padding: 16px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 12px;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+.trigger-btn:hover {
+  opacity: 0.9;
+}
+
+.trigger-btn:active {
+  transform: scale(0.98);
+}
+
+.trigger-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Toggle Switch */
+.auto-open-toggle {
+  background: var(--card-bg);
+  border-radius: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+}
+
+.toggle-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.toggle {
+  width: 48px;
+  height: 26px;
+  border-radius: 13px;
+  background: var(--border);
+  position: relative;
+  transition: background 0.2s;
+  cursor: pointer;
+}
+
+.toggle.on {
+  background: var(--green);
+}
+
+.toggle-knob {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: white;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.2s;
+}
+
+.toggle.on .toggle-knob {
+  transform: translateX(22px);
+}
+
+/* Events */
+.events-section {
+  margin-top: 24px;
+}
+
+.events-section h3 {
+  font-size: 1rem;
+  margin-bottom: 12px;
+  color: var(--text-dim);
+}
+
+.events-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.event-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--card-bg);
+  border-radius: 10px;
+}
+
+.event-icon {
+  font-size: 1.3rem;
+  width: 36px;
+  text-align: center;
+}
+
+.event-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.event-action {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.event-meta {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.source-badge {
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.source-badge.api {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--accent);
+}
+
+.source-badge.auto {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--green);
+}
+
+.source-badge.esp32 {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--orange);
+}
+
+.source-badge.manual {
+  background: rgba(139, 139, 158, 0.15);
+  color: var(--text-dim);
+}
+
+.loading {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-dim);
+}
+
+.error {
+  text-align: center;
+  padding: 40px;
+  color: var(--red);
+}
+
+.no-events {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}

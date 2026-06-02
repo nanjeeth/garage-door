@@ -1,0 +1,29 @@
+services:
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      - ESP32_IP=192.168.1.160
+      - ESP32_TOKEN=gd-s3cur3-t0k3n-2026
+      - DOOR_OPEN_ALERT_SECONDS=300
+      - DATABASE_URL=sqlite:///./data/garage.db
+      - NOTIFY_ENABLED=${NOTIFY_ENABLED:-false}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - PHONE_IP=${PHONE_IP:-}
+      - PHONE_MAC=${PHONE_MAC:-}
+    volumes:
+      - garage-data:/app/data
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+    depends_on:
+      - backend
+
+volumes:
+  garage-data:

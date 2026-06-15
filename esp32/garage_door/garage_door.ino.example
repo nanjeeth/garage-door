@@ -59,11 +59,14 @@ const int  RELAY_OFF = RELAY_ACTIVE_LOW ? HIGH : LOW;   // idle / released
 
 // Door is considered OPEN when the measured distance is below this many cm
 // (i.e. the door panel is parked close to the sensor). Calibrate for your install.
-const float DOOR_OPEN_THRESHOLD_CM = 60.0;
+const float DOOR_OPEN_THRESHOLD_CM = 105.0;  // open ~57cm, closed ~155cm -> midpoint
 // Hysteresis band (cm) so readings hovering near the threshold don't flap.
 const float HYSTERESIS_CM = 10.0;
 // Echo timeout: ~30ms ≈ 5m max range. Reading times out -> treated as "far".
 const unsigned long ECHO_TIMEOUT_US = 30000UL;
+// Set true to print the live distance once a second over Serial — handy for
+// aiming the sensor and picking DOOR_OPEN_THRESHOLD_CM. Set false when done.
+const bool DEBUG_DISTANCE = true;
 
 WebServer server(80);
 
@@ -172,6 +175,15 @@ void notifyServer(bool isOpen) {
 void checkDoorSensor() {
   float distance = readDistanceCm();
   lastDistanceCm = distance;
+
+  if (DEBUG_DISTANCE) {
+    static unsigned long lastPrint = 0;
+    if (millis() - lastPrint > 1000) {
+      lastPrint = millis();
+      Serial.printf("live distance: %.1f cm  (state now: %s)\n",
+                    distance, doorOpen ? "OPEN" : "CLOSED");
+    }
+  }
 
   // Ceiling mount: the OPEN panel parks close under the sensor, so a close
   // echo means OPEN. No echo at all means the bay is empty/far -> CLOSED, so

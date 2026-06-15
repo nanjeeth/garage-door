@@ -74,7 +74,7 @@ def toggle_auto_open(enabled: bool):
 
 @router.post("/webhook")
 async def esp32_webhook(payload: dict, db: Session = Depends(get_db)):
-    """ESP32 calls this when door state changes (reed switch triggered)."""
+    """ESP32 calls this when door state changes (distance sensor triggered)."""
     door_status = payload.get("door")
     if door_status not in ("open", "closed"):
         raise HTTPException(status_code=400, detail="Invalid status")

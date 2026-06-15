@@ -1,0 +1,238 @@
+/*
+  Garage Door Controller — ESP32 Firmware
+
+  SETUP:
+    Copy this file to garage_door.ino and fill in the CONFIGURE section with
+    your real WiFi credentials, auth token, and server URL. garage_door.ino is
+    gitignored so your secrets never get committed.
+
+  Wiring:
+    - Relay signal     → GPIO 26 (triggers garage door opener)
+    - HC-SR04 TRIG     → GPIO 27
+    - HC-SR04 ECHO     → GPIO 14  (see voltage note below)
+    - HC-SR04 VCC      → 5V (use HC-SR04P if you only have 3.3V)
+    - HC-SR04 GND      → GND
+
+  VOLTAGE NOTE:
+    A standard HC-SR04 is a 5V part and its ECHO pin outputs 5V, but ESP32
+    GPIOs are only 3.3V tolerant. Drop ECHO with a divider (e.g. 1kΩ from
+    ECHO to GPIO 14, 2kΩ from GPIO 14 to GND) OR use the 3.3V HC-SR04P,
+    which can be wired directly.
+
+  SENSOR PLACEMENT / CALIBRATION:
+    Mount the sensor so the door panel passes in front of it. This firmware
+    assumes the sensor sees the panel CLOSE when the door is OPEN (e.g. mounted
+    on the ceiling where the open panel parks just below it). Tune
+    DOOR_OPEN_THRESHOLD_CM to your install. If your mounting is reversed
+    (panel close = CLOSED), flip the comparison in checkDoorSensor() — it is
+    marked below.
+
+  API:
+    GET  /status   → {"door": "open"|"closed", "distance_cm": <float>}
+    POST /trigger  → pulses relay for 500ms (like pressing the wall button)
+*/
+
+#include <WiFi.h>
+#include <WebServer.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+
+// ——— CONFIGURE THESE ———
+const char* WIFI_SSID     = "YOUR_WIFI_SSID";
+const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+const char* AUTH_TOKEN     = "your-secret-token";  // must match server .env
+const char* SERVER_URL     = "http://YOUR_SERVER_IP:8002/api/door/webhook";
+// ————————————————————————
+
+#define RELAY_PIN   26
+#define TRIG_PIN    27
+#define ECHO_PIN    14
+#define STATUS_LED  2   // built-in LED
+
+// Door is considered OPEN when the measured distance is below this many cm
+// (i.e. the door panel is parked close to the sensor). Calibrate for your install.
+const float DOOR_OPEN_THRESHOLD_CM = 60.0;
+// Hysteresis band (cm) so readings hovering near the threshold don't flap.
+const float HYSTERESIS_CM = 10.0;
+// Echo timeout: ~30ms ≈ 5m max range. Reading times out -> treated as "far".
+const unsigned long ECHO_TIMEOUT_US = 30000UL;
+
+WebServer server(80);
+
+bool doorOpen = false;
+bool lastDoorState = false;
+float lastDistanceCm = -1.0;
+unsigned long lastDebounce = 0;
+const unsigned long DEBOUNCE_MS = 2000;
+
+
+bool checkAuth() {
+  if (!server.hasHeader("Authorization")) {
+    server.send(401, "application/json", "{\"error\":\"unauthorized\"}");
+    return false;
+  }
+  String auth = server.header("Authorization");
+  String expected = "Bearer " + String(AUTH_TOKEN);
+  if (auth != expected) {
+    server.send(403, "application/json", "{\"error\":\"forbidden\"}");
+    return false;
+  }
+  return true;
+}
+
+
+// Fires one ultrasonic ping and returns the distance in cm, or -1 on timeout.
+float readDistanceOnce() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  unsigned long duration = pulseIn(ECHO_PIN, HIGH, ECHO_TIMEOUT_US);
+  if (duration == 0) return -1.0;          // no echo within range
+  return (duration * 0.0343) / 2.0;        // speed of sound, round trip
+}
+
+
+// Median of several pings to reject the occasional bad reading.
+float readDistanceCm() {
+  const int SAMPLES = 5;
+  float vals[SAMPLES];
+  int n = 0;
+
+  for (int i = 0; i < SAMPLES; i++) {
+    float d = readDistanceOnce();
+    if (d > 0) vals[n++] = d;
+    delay(40);  // HC-SR04 needs >=60ms between pings; 40ms + work is plenty
+  }
+  if (n == 0) return -1.0;
+
+  // simple insertion sort
+  for (int i = 1; i < n; i++) {
+    float key = vals[i];
+    int j = i - 1;
+    while (j >= 0 && vals[j] > key) { vals[j + 1] = vals[j]; j--; }
+    vals[j + 1] = key;
+  }
+  return vals[n / 2];
+}
+
+
+void handleStatus() {
+  if (!checkAuth()) return;
+
+  String status = doorOpen ? "open" : "closed";
+  String json = "{\"door\":\"" + status + "\",\"distance_cm\":" + String(lastDistanceCm, 1) + "}";
+  server.send(200, "application/json", json);
+}
+
+
+void handleTrigger() {
+  if (!checkAuth()) return;
+
+  Serial.println("Triggering relay...");
+  digitalWrite(RELAY_PIN, HIGH);
+  delay(500);
+  digitalWrite(RELAY_PIN, LOW);
+
+  server.send(200, "application/json", "{\"triggered\":true}");
+}
+
+
+void notifyServer(bool isOpen) {
+  WiFiClient client;
+  HTTPClient http;
+
+  http.begin(client, SERVER_URL);
+  http.addHeader("Content-Type", "application/json");
+
+  String body = isOpen ? "{\"door\":\"open\"}" : "{\"door\":\"closed\"}";
+  int code = http.POST(body);
+
+  if (code > 0) {
+    Serial.printf("Webhook sent, response: %d\n", code);
+  } else {
+    Serial.printf("Webhook failed: %s\n", http.errorToString(code).c_str());
+  }
+  http.end();
+}
+
+
+// Convert the measured distance into an open/closed state with hysteresis,
+// then debounce and notify the server on a confirmed change.
+void checkDoorSensor() {
+  float distance = readDistanceCm();
+  lastDistanceCm = distance;
+
+  // Ceiling mount: the OPEN panel parks close under the sensor, so a close
+  // echo means OPEN. No echo at all means the bay is empty/far -> CLOSED, so
+  // we treat a timeout the same as a far reading rather than ignoring it.
+  // --- POLARITY: panel close to sensor == OPEN ---
+  // Flip these two comparisons if your mounting is reversed.
+  bool currentState = lastDoorState;
+  bool farOrNoEcho = (distance < 0) || (distance > DOOR_OPEN_THRESHOLD_CM + HYSTERESIS_CM);
+  if (distance >= 0 && distance < DOOR_OPEN_THRESHOLD_CM - HYSTERESIS_CM) {
+    currentState = true;   // clearly close -> OPEN
+  } else if (farOrNoEcho) {
+    currentState = false;  // clearly far / no echo -> CLOSED
+  }
+  // within the hysteresis band: leave state unchanged
+
+  if (currentState != lastDoorState && millis() - lastDebounce > DEBOUNCE_MS) {
+    lastDebounce = millis();
+    lastDoorState = currentState;
+    doorOpen = currentState;
+
+    Serial.printf("Door state changed: %s (%.1f cm)\n", doorOpen ? "OPEN" : "CLOSED", distance);
+    digitalWrite(STATUS_LED, doorOpen ? HIGH : LOW);
+
+    notifyServer(doorOpen);
+  }
+}
+
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(RELAY_PIN, OUTPUT);
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  pinMode(STATUS_LED, OUTPUT);
+
+  digitalWrite(RELAY_PIN, LOW);
+  digitalWrite(TRIG_PIN, LOW);
+
+  // Connect WiFi
+  Serial.printf("Connecting to %s", WIFI_SSID);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.printf("\nConnected! IP: %s\n", WiFi.localIP().toString().c_str());
+
+  // Read initial door state
+  float d = readDistanceCm();
+  lastDistanceCm = d;
+  doorOpen = (d > 0) && (d < DOOR_OPEN_THRESHOLD_CM);
+  lastDoorState = doorOpen;
+  digitalWrite(STATUS_LED, doorOpen ? HIGH : LOW);
+  Serial.printf("Initial door state: %s (%.1f cm)\n", doorOpen ? "OPEN" : "CLOSED", d);
+
+  // Setup HTTP server
+  const char* headerKeys[] = {"Authorization"};
+  server.collectHeaders(headerKeys, 1);
+  server.on("/status", HTTP_GET, handleStatus);
+  server.on("/trigger", HTTP_POST, handleTrigger);
+  server.begin();
+
+  Serial.println("HTTP server started on port 80");
+}
+
+
+void loop() {
+  server.handleClient();
+  checkDoorSensor();
+  delay(50);
+}

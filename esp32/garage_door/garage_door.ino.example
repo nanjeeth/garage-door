@@ -49,21 +49,35 @@ const char* SERVER_URL     = "http://YOUR_SERVER_IP:8002/api/door/webhook";
 #define ECHO_PIN    14
 #define STATUS_LED  2   // built-in LED
 
+// Most hobby relay boards (the common blue Songle modules) are ACTIVE-LOW:
+// the IN pin must be driven LOW to energize the relay. Idling at the wrong
+// level holds the opener's button "pressed", which makes many openers lock
+// the motor out. Set this false if you have an active-HIGH board.
+const bool RELAY_ACTIVE_LOW = false;  // verified active-HIGH: idle LOW = released, HIGH = pressed
+const int  RELAY_ON  = RELAY_ACTIVE_LOW ? LOW : HIGH;   // level that presses
+const int  RELAY_OFF = RELAY_ACTIVE_LOW ? HIGH : LOW;   // idle / released
+
 // Door is considered OPEN when the measured distance is below this many cm
 // (i.e. the door panel is parked close to the sensor). Calibrate for your install.
-const float DOOR_OPEN_THRESHOLD_CM = 60.0;
+const float DOOR_OPEN_THRESHOLD_CM = 105.0;  // open ~57cm, closed ~155cm -> midpoint
 // Hysteresis band (cm) so readings hovering near the threshold don't flap.
 const float HYSTERESIS_CM = 10.0;
 // Echo timeout: ~30ms ≈ 5m max range. Reading times out -> treated as "far".
 const unsigned long ECHO_TIMEOUT_US = 30000UL;
+// Set true to print the live distance once a second over Serial — handy for
+// aiming the sensor and picking DOOR_OPEN_THRESHOLD_CM. Set false when done.
+const bool DEBUG_DISTANCE = true;
 
 WebServer server(80);
 
 bool doorOpen = false;
 bool lastDoorState = false;
 float lastDistanceCm = -1.0;
-unsigned long lastDebounce = 0;
-const unsigned long DEBOUNCE_MS = 2000;
+// Require this many consecutive consistent readings before changing state, so a
+// single stray echo (open panel missed -> beam hits the floor) can't flip the
+// door state and spam notifications.
+const int CONFIRM_SAMPLES = 8;
+int candidateStreak = 0;
 
 
 bool checkAuth() {
@@ -132,9 +146,9 @@ void handleTrigger() {
   if (!checkAuth()) return;
 
   Serial.println("Triggering relay...");
-  digitalWrite(RELAY_PIN, HIGH);
+  digitalWrite(RELAY_PIN, RELAY_ON);   // press the opener button
   delay(500);
-  digitalWrite(RELAY_PIN, LOW);
+  digitalWrite(RELAY_PIN, RELAY_OFF);  // release
 
   server.send(200, "application/json", "{\"triggered\":true}");
 }
@@ -165,29 +179,44 @@ void checkDoorSensor() {
   float distance = readDistanceCm();
   lastDistanceCm = distance;
 
+  if (DEBUG_DISTANCE) {
+    static unsigned long lastPrint = 0;
+    if (millis() - lastPrint > 1000) {
+      lastPrint = millis();
+      Serial.printf("live distance: %.1f cm  (state now: %s)\n",
+                    distance, doorOpen ? "OPEN" : "CLOSED");
+    }
+  }
+
   // Ceiling mount: the OPEN panel parks close under the sensor, so a close
   // echo means OPEN. No echo at all means the bay is empty/far -> CLOSED, so
   // we treat a timeout the same as a far reading rather than ignoring it.
   // --- POLARITY: panel close to sensor == OPEN ---
   // Flip these two comparisons if your mounting is reversed.
-  bool currentState = lastDoorState;
+  bool reading = lastDoorState;  // ambiguous (hysteresis band) keeps current state
   bool farOrNoEcho = (distance < 0) || (distance > DOOR_OPEN_THRESHOLD_CM + HYSTERESIS_CM);
   if (distance >= 0 && distance < DOOR_OPEN_THRESHOLD_CM - HYSTERESIS_CM) {
-    currentState = true;   // clearly close -> OPEN
+    reading = true;   // clearly close -> OPEN
   } else if (farOrNoEcho) {
-    currentState = false;  // clearly far / no echo -> CLOSED
+    reading = false;  // clearly far / no echo -> CLOSED
   }
-  // within the hysteresis band: leave state unchanged
 
-  if (currentState != lastDoorState && millis() - lastDebounce > DEBOUNCE_MS) {
-    lastDebounce = millis();
-    lastDoorState = currentState;
-    doorOpen = currentState;
+  // Only commit a change after CONFIRM_SAMPLES readings in a row disagree with
+  // the current state. A lone bad echo resets the streak instead of flipping.
+  if (reading != lastDoorState) {
+    candidateStreak++;
+    if (candidateStreak >= CONFIRM_SAMPLES) {
+      candidateStreak = 0;
+      lastDoorState = reading;
+      doorOpen = reading;
 
-    Serial.printf("Door state changed: %s (%.1f cm)\n", doorOpen ? "OPEN" : "CLOSED", distance);
-    digitalWrite(STATUS_LED, doorOpen ? HIGH : LOW);
+      Serial.printf("Door state changed: %s (%.1f cm)\n", doorOpen ? "OPEN" : "CLOSED", distance);
+      digitalWrite(STATUS_LED, doorOpen ? HIGH : LOW);
 
-    notifyServer(doorOpen);
+      notifyServer(doorOpen);
+    }
+  } else {
+    candidateStreak = 0;
   }
 }
 
@@ -195,12 +224,16 @@ void checkDoorSensor() {
 void setup() {
   Serial.begin(115200);
 
+  // Drive the relay to its idle (released) level BEFORE enabling the output,
+  // so it doesn't click on briefly during boot — a phantom button press.
+  digitalWrite(RELAY_PIN, RELAY_OFF);
   pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, RELAY_OFF);
+
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
   pinMode(STATUS_LED, OUTPUT);
 
-  digitalWrite(RELAY_PIN, LOW);
   digitalWrite(TRIG_PIN, LOW);
 
   // Connect WiFi
@@ -211,6 +244,11 @@ void setup() {
     Serial.print(".");
   }
   Serial.printf("\nConnected! IP: %s\n", WiFi.localIP().toString().c_str());
+
+  // Keep the WiFi radio fully awake. The ESP32 enables modem-sleep power
+  // saving by default, which makes the HTTP server slow/unresponsive after
+  // a period of inactivity.
+  WiFi.setSleep(false);
 
   // Read initial door state
   float d = readDistanceCm();

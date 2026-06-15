@@ -53,7 +53,7 @@ const char* SERVER_URL     = "http://YOUR_SERVER_IP:8002/api/door/webhook";
 // the IN pin must be driven LOW to energize the relay. Idling at the wrong
 // level holds the opener's button "pressed", which makes many openers lock
 // the motor out. Set this false if you have an active-HIGH board.
-const bool RELAY_ACTIVE_LOW = true;
+const bool RELAY_ACTIVE_LOW = false;  // verified active-HIGH: idle LOW = released, HIGH = pressed
 const int  RELAY_ON  = RELAY_ACTIVE_LOW ? LOW : HIGH;   // level that presses
 const int  RELAY_OFF = RELAY_ACTIVE_LOW ? HIGH : LOW;   // idle / released
 
@@ -73,8 +73,11 @@ WebServer server(80);
 bool doorOpen = false;
 bool lastDoorState = false;
 float lastDistanceCm = -1.0;
-unsigned long lastDebounce = 0;
-const unsigned long DEBOUNCE_MS = 2000;
+// Require this many consecutive consistent readings before changing state, so a
+// single stray echo (open panel missed -> beam hits the floor) can't flip the
+// door state and spam notifications.
+const int CONFIRM_SAMPLES = 8;
+int candidateStreak = 0;
 
 
 bool checkAuth() {
@@ -190,24 +193,30 @@ void checkDoorSensor() {
   // we treat a timeout the same as a far reading rather than ignoring it.
   // --- POLARITY: panel close to sensor == OPEN ---
   // Flip these two comparisons if your mounting is reversed.
-  bool currentState = lastDoorState;
+  bool reading = lastDoorState;  // ambiguous (hysteresis band) keeps current state
   bool farOrNoEcho = (distance < 0) || (distance > DOOR_OPEN_THRESHOLD_CM + HYSTERESIS_CM);
   if (distance >= 0 && distance < DOOR_OPEN_THRESHOLD_CM - HYSTERESIS_CM) {
-    currentState = true;   // clearly close -> OPEN
+    reading = true;   // clearly close -> OPEN
   } else if (farOrNoEcho) {
-    currentState = false;  // clearly far / no echo -> CLOSED
+    reading = false;  // clearly far / no echo -> CLOSED
   }
-  // within the hysteresis band: leave state unchanged
 
-  if (currentState != lastDoorState && millis() - lastDebounce > DEBOUNCE_MS) {
-    lastDebounce = millis();
-    lastDoorState = currentState;
-    doorOpen = currentState;
+  // Only commit a change after CONFIRM_SAMPLES readings in a row disagree with
+  // the current state. A lone bad echo resets the streak instead of flipping.
+  if (reading != lastDoorState) {
+    candidateStreak++;
+    if (candidateStreak >= CONFIRM_SAMPLES) {
+      candidateStreak = 0;
+      lastDoorState = reading;
+      doorOpen = reading;
 
-    Serial.printf("Door state changed: %s (%.1f cm)\n", doorOpen ? "OPEN" : "CLOSED", distance);
-    digitalWrite(STATUS_LED, doorOpen ? HIGH : LOW);
+      Serial.printf("Door state changed: %s (%.1f cm)\n", doorOpen ? "OPEN" : "CLOSED", distance);
+      digitalWrite(STATUS_LED, doorOpen ? HIGH : LOW);
 
-    notifyServer(doorOpen);
+      notifyServer(doorOpen);
+    }
+  } else {
+    candidateStreak = 0;
   }
 }
 

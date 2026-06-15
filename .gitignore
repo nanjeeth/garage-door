@@ -8,5 +8,6 @@ dist/
 data/
 *.db
 
-# Local firmware copy with credentials — never push
-esp32/garage_door/
+# Local firmware copy with real credentials — never push.
+# Only the sanitized garage_door.ino.example is tracked.
+esp32/garage_door/garage_door.ino

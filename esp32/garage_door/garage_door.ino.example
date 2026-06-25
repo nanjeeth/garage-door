@@ -249,6 +249,8 @@ void setup() {
   // saving by default, which makes the HTTP server slow/unresponsive after
   // a period of inactivity.
   WiFi.setSleep(false);
+  WiFi.setAutoReconnect(true);   // let the WiFi stack auto-rejoin on drop
+  WiFi.persistent(true);
 
   // Read initial door state
   float d = readDistanceCm();
@@ -269,7 +271,23 @@ void setup() {
 }
 
 
+// Re-establish WiFi if it drops. The ESP32 won't always reconnect on its own,
+// so check periodically and kick a reconnect — this avoids a manual power-cycle
+// after a router reboot or WiFi blip.
+void ensureWiFi() {
+  static unsigned long lastCheck = 0;
+  if (millis() - lastCheck < 10000) return;   // check every 10s
+  lastCheck = millis();
+  if (WiFi.status() == WL_CONNECTED) return;
+
+  Serial.println("WiFi disconnected — reconnecting...");
+  WiFi.disconnect();
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+}
+
+
 void loop() {
+  ensureWiFi();
   server.handleClient();
   checkDoorSensor();
   delay(50);

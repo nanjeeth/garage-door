@@ -11,3 +11,6 @@ data/
 # Local firmware copy with real credentials — never push.
 # Only the sanitized garage_door.ino.example is tracked.
 esp32/garage_door/garage_door.ino
+
+# Arduino build artifacts (Export Compiled Binary output)
+esp32/garage_door/build/

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -10,14 +10,21 @@ from app.notifier import send_notification
 router = APIRouter()
 
 
+def _iso_utc(dt):
+    """Serialize a naive-UTC datetime as a UTC-aware ISO string (with offset),
+    so clients render it in their own local timezone instead of mistaking it
+    for local time."""
+    return dt.replace(tzinfo=timezone.utc).isoformat() if dt else None
+
+
 @router.get("/status")
 def door_status(db: Session = Depends(get_db)):
     state = db.query(models.DoorState).first()
 
     return {
         "is_open": state.is_open if state else False,
-        "last_changed": state.last_changed.isoformat() if state and state.last_changed else None,
-        "last_triggered": state.last_triggered.isoformat() if state and state.last_triggered else None,
+        "last_changed": _iso_utc(state.last_changed) if state else None,
+        "last_triggered": _iso_utc(state.last_triggered) if state else None,
         "esp32_reachable": scheduler.esp32_reachable,
         "esp32_status": scheduler.esp32_status,
         "auto_open_enabled": scheduler.auto_open_enabled,
@@ -59,7 +66,7 @@ def events(limit: int = 50, db: Session = Depends(get_db)):
             "id": r.id,
             "action": r.action,
             "source": r.source,
-            "timestamp": r.timestamp.isoformat(),
+            "timestamp": _iso_utc(r.timestamp),
         }
         for r in rows
     ]

@@ -44,7 +44,7 @@ function sourceLabel(source: string): string {
 export default function Dashboard() {
   const queryClient = useQueryClient();
 
-  const { data: status, isLoading: statusLoading } = useQuery<DoorStatus>({
+  const { data: status, isLoading: statusLoading, isError: statusError } = useQuery<DoorStatus>({
     queryKey: ["status"],
     queryFn: api.status,
   });
@@ -73,8 +73,8 @@ export default function Dashboard() {
     return <div className="loading">Connecting to garage...</div>;
   }
 
-  if (!status) {
-    return <div className="error">Could not connect to server</div>;
+  if (statusError || !status) {
+    return <div className="error">Could not connect to server — retrying every 5s</div>;
   }
 
   return (

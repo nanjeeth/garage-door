@@ -3,7 +3,7 @@ import Dashboard from "./components/Dashboard";
 import "./App.css";
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { refetchInterval: 5000 } },
+  defaultOptions: { queries: { refetchInterval: 5000, retry: 1, retryDelay: 1000 } },
 });
 
 export default function App() {

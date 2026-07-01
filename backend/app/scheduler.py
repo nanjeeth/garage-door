@@ -26,6 +26,8 @@ class GarageScheduler:
         self.phone_was_home = False
         self.auto_open_enabled = True
         self.alert_sent = False
+        self.esp32_reachable = False
+        self.esp32_status: str | None = None
 
     async def start(self):
         self.running = True
@@ -88,6 +90,8 @@ class GarageScheduler:
     async def _poll_door_status(self):
         while self.running:
             status = await get_door_status()
+            self.esp32_status = status
+            self.esp32_reachable = status is not None
             if status:
                 is_open = status == "open"
                 await asyncio.to_thread(self._update_door_state, is_open, "esp32")

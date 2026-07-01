@@ -36,14 +36,12 @@
 #include <WebServer.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include <ArduinoOTA.h>
 
 // ——— CONFIGURE THESE ———
 const char* WIFI_SSID     = "YOUR_WIFI_SSID";
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 const char* AUTH_TOKEN     = "your-secret-token";  // must match server .env
 const char* SERVER_URL     = "http://YOUR_SERVER_IP:8002/api/door/webhook";
-const char* OTA_PASSWORD   = "your-ota-password";  // password for over-the-air firmware updates
 // ————————————————————————
 
 #define RELAY_PIN   26
@@ -259,13 +257,6 @@ void setup() {
   WiFi.setAutoReconnect(true);   // let the WiFi stack auto-rejoin on drop
   WiFi.persistent(true);
 
-  // Over-the-air updates: flash new firmware over WiFi so the mounted device
-  // never needs a USB cable again. In Arduino IDE, pick the network port
-  // "garage-door" under Tools -> Port, then Upload (enter OTA_PASSWORD).
-  ArduinoOTA.setHostname("garage-door");
-  ArduinoOTA.setPassword(OTA_PASSWORD);
-  ArduinoOTA.begin();
-
   // Read initial door state
   float d = readDistanceCm();
   lastDistanceCm = d;
@@ -302,7 +293,6 @@ void ensureWiFi() {
 
 void loop() {
   ensureWiFi();
-  ArduinoOTA.handle();
   server.handleClient();
   checkDoorSensor();
   delay(50);

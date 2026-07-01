@@ -29,7 +29,7 @@ class GarageScheduler:
 
     async def start(self):
         self.running = True
-        self._init_state()
+        await asyncio.to_thread(self._init_state)
         logger.info("Scheduler started")
 
         await asyncio.gather(
@@ -90,7 +90,7 @@ class GarageScheduler:
             status = await get_door_status()
             if status:
                 is_open = status == "open"
-                self._update_door_state(is_open, "esp32")
+                await asyncio.to_thread(self._update_door_state, is_open, "esp32")
             await asyncio.sleep(5)
 
     async def _poll_phone(self):
@@ -99,7 +99,7 @@ class GarageScheduler:
                 await asyncio.sleep(30)
                 continue
 
-            phone_home = detect_phone()
+            phone_home = await asyncio.to_thread(detect_phone)
 
             if phone_home and not self.phone_was_home:
                 logger.info("Phone detected on network — arrival!")
@@ -107,7 +107,7 @@ class GarageScheduler:
                     success = await trigger_door()
                     if success:
                         await send_notification("Auto-opened — welcome home!")
-                        self._update_door_state(True, "auto")
+                        await asyncio.to_thread(self._update_door_state, True, "auto")
 
             self.phone_was_home = phone_home
             await asyncio.sleep(15)

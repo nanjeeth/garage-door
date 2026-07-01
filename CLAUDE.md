@@ -62,15 +62,19 @@ Data flow: `ESP32  ⇄  FastAPI backend  ⇄  React frontend`
 - **Relay is ACTIVE-HIGH** (`RELAY_ACTIVE_LOW = false`): idle `LOW` = released,
   `HIGH` = pressed. `/trigger` pulses 500ms. Idle level is set before enabling
   the output to avoid a boot-time phantom press.
-- **Door state from distance:** OPEN when distance < `DOOR_OPEN_THRESHOLD_CM`
-  (currently `105`) minus `HYSTERESIS_CM`, CLOSED when above it; a timeout/no-echo
-  counts as far/CLOSED. Calibrated for a ceiling mount: open panel ≈ 66cm,
-  closed (floor) ≈ 155cm.
+- **Door state from distance:** OPEN when the reading falls inside a distance
+  **window** `[OPEN_MIN_CM, OPEN_MAX_CM]` (35–85cm) around the open panel's
+  distance (≈66cm). A parked car's roof (≈100cm), the empty floor (≈155cm), and
+  no-echo all read farther and count as CLOSED. Using a window (not a single
+  threshold) lets the sensor sit over the parking spot without confusing a
+  present car for an open door — set `OPEN_MAX_CM` below the parked car's roof
+  distance.
 - **`CONFIRM_SAMPLES`** consecutive consistent readings are required before the
   state changes — rejects stray echoes that otherwise spam notifications.
-- **Sensor aiming matters:** point it only at the door panel's travel path, NOT
-  over the parking spot — a parked car in the beam reads close and is
-  indistinguishable from an open panel.
+- **Sensor aiming:** aim it where the open door panel parks within its beam.
+  Thanks to the OPEN window it can sit over the parking spot — just keep
+  `OPEN_MAX_CM` below the parked car's roof distance so a present car reads
+  CLOSED.
 - **WiFi resilience:** `setSleep(false)` keeps the radio responsive;
   `setAutoReconnect(true)` + `ensureWiFi()` (checked every 10s in `loop()`)
   rejoin automatically after a router reboot / WiFi drop.

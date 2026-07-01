@@ -59,9 +59,13 @@ const bool RELAY_ACTIVE_LOW = false;  // verified active-HIGH: idle LOW = releas
 const int  RELAY_ON  = RELAY_ACTIVE_LOW ? LOW : HIGH;   // level that presses
 const int  RELAY_OFF = RELAY_ACTIVE_LOW ? HIGH : LOW;   // idle / released
 
-// Door is considered OPEN when the measured distance is below this many cm
-// (i.e. the door panel is parked close to the sensor). Calibrate for your install.
-const float DOOR_OPEN_THRESHOLD_CM = 105.0;  // open ~57cm, closed ~155cm -> midpoint
+// OPEN is detected as a DISTANCE WINDOW around the open panel's distance,
+// NOT a single threshold. This lets the sensor sit over the parking spot: a
+// parked car's roof and the empty floor both read FARTHER than OPEN_MAX_CM, so
+// they register CLOSED. Set OPEN_MAX_CM between the open-panel distance and the
+// (farther) parked-car distance.
+const float OPEN_MIN_CM = 35.0;   // nearer than this = not the panel
+const float OPEN_MAX_CM = 85.0;   // farther than this (car roof, floor) = CLOSED
 // Hysteresis band (cm) so readings hovering near the threshold don't flap.
 const float HYSTERESIS_CM = 10.0;
 // Echo timeout: ~30ms ≈ 5m max range. Reading times out -> treated as "far".
@@ -190,17 +194,18 @@ void checkDoorSensor() {
     }
   }
 
-  // Ceiling mount: the OPEN panel parks close under the sensor, so a close
-  // echo means OPEN. No echo at all means the bay is empty/far -> CLOSED, so
-  // we treat a timeout the same as a far reading rather than ignoring it.
-  // --- POLARITY: panel close to sensor == OPEN ---
-  // Flip these two comparisons if your mounting is reversed.
-  bool reading = lastDoorState;  // ambiguous (hysteresis band) keeps current state
-  bool farOrNoEcho = (distance < 0) || (distance > DOOR_OPEN_THRESHOLD_CM + HYSTERESIS_CM);
-  if (distance >= 0 && distance < DOOR_OPEN_THRESHOLD_CM - HYSTERESIS_CM) {
-    reading = true;   // clearly close -> OPEN
-  } else if (farOrNoEcho) {
-    reading = false;  // clearly far / no echo -> CLOSED
+  // Ceiling mount over the parking spot: OPEN = the panel sits in a distance
+  // WINDOW under the sensor. A parked car (farther), the empty floor, or no
+  // echo all fall OUTSIDE the window and read CLOSED.
+  bool reading = lastDoorState;  // ambiguous (near a window edge) keeps current state
+  bool inOpenWindow = (distance >= OPEN_MIN_CM) && (distance <= OPEN_MAX_CM);
+  bool outsideWindow = (distance < 0)
+                       || (distance < OPEN_MIN_CM - HYSTERESIS_CM)
+                       || (distance > OPEN_MAX_CM + HYSTERESIS_CM);
+  if (inOpenWindow) {
+    reading = true;   // panel parked in the window -> OPEN
+  } else if (outsideWindow) {
+    reading = false;  // car roof / floor / no echo -> CLOSED
   }
 
   // Only commit a change after CONFIRM_SAMPLES readings in a row disagree with
@@ -264,7 +269,7 @@ void setup() {
   // Read initial door state
   float d = readDistanceCm();
   lastDistanceCm = d;
-  doorOpen = (d > 0) && (d < DOOR_OPEN_THRESHOLD_CM);
+  doorOpen = (d >= OPEN_MIN_CM) && (d <= OPEN_MAX_CM);
   lastDoorState = doorOpen;
   digitalWrite(STATUS_LED, doorOpen ? HIGH : LOW);
   Serial.printf("Initial door state: %s (%.1f cm)\n", doorOpen ? "OPEN" : "CLOSED", d);

@@ -74,6 +74,9 @@ Data flow: `ESP32  ⇄  FastAPI backend  ⇄  React frontend`
 - **WiFi resilience:** `setSleep(false)` keeps the radio responsive;
   `setAutoReconnect(true)` + `ensureWiFi()` (checked every 10s in `loop()`)
   rejoin automatically after a router reboot / WiFi drop.
+- **OTA updates:** `ArduinoOTA` is enabled (hostname `garage-door`, password
+  `OTA_PASSWORD`). After the first USB flash, push new firmware wirelessly via
+  Arduino IDE → Tools → Port → the network port `garage-door`.
 - `DEBUG_DISTANCE` prints the live distance once/second over Serial for
   calibration; set `false` for a quiet build.
 
